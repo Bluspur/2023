@@ -17,12 +17,11 @@ fn search(map: &Map) -> usize {
         .map(|&node| {
             let mut current = node;
             let mut steps = 0;
-            while map.nodes[current].is_terminal != Terminal::End {
-                let direction = match map.directions[steps % map.directions.len()] {
-                    Direction::Right => Direction::Right,
-                    Direction::Left => Direction::Left,
+            while map.nodes[current].is_terminal != Some(Terminal::End) {
+                current = match map.directions[steps % map.directions.len()] {
+                    Direction::Right => map.get_edge(current, &Direction::Right),
+                    Direction::Left => map.get_edge(current, &Direction::Left),
                 };
-                current = map.get_edge(current, &direction);
                 steps += 1;
             }
             steps
@@ -32,7 +31,7 @@ fn search(map: &Map) -> usize {
     cul_steps
         .iter()
         .cloned()
-        .reduce(|acc, s| lcm(acc, s))
+        .reduce(lcm)
         .expect("No steps found")
 }
 
@@ -98,16 +97,16 @@ impl Direction {
 #[derive(Debug, PartialEq)]
 struct Node {
     id: String,
-    is_terminal: Terminal,
+    is_terminal: Option<Terminal>,
 }
 
 impl Node {
     fn from_str(input: &str) -> Self {
         let id = input.to_string();
         let is_terminal = match input.chars().last() {
-            Some('A') => Terminal::Start,
-            Some('Z') => Terminal::End,
-            _ => Terminal::None,
+            Some('A') => Some(Terminal::Start),
+            Some('Z') => Some(Terminal::End),
+            _ => None,
         };
         Self { id, is_terminal }
     }
@@ -131,7 +130,7 @@ impl Map {
         self.nodes
             .iter()
             .filter_map(|(k, v)| {
-                if v.is_terminal == Terminal::Start {
+                if v.is_terminal == Some(Terminal::Start) {
                     Some(k)
                 } else {
                     None
@@ -142,8 +141,8 @@ impl Map {
     fn get_edge(&self, id: &str, direction: &Direction) -> &String {
         let (left, right) = &self.edges[id];
         match direction {
-            Direction::Right => &right,
-            Direction::Left => &left,
+            Direction::Right => right,
+            Direction::Left => left,
         }
     }
 }
@@ -169,35 +168,35 @@ mod tests {
         let expected_nodes = vec![
             Node {
                 id: "11A".to_string(),
-                is_terminal: Terminal::Start,
+                is_terminal: Some(Terminal::Start),
             },
             Node {
                 id: "11B".to_string(),
-                is_terminal: Terminal::None,
+                is_terminal: None,
             },
             Node {
                 id: "11Z".to_string(),
-                is_terminal: Terminal::End,
+                is_terminal: Some(Terminal::End),
             },
             Node {
                 id: "22A".to_string(),
-                is_terminal: Terminal::Start,
+                is_terminal: Some(Terminal::Start),
             },
             Node {
                 id: "22B".to_string(),
-                is_terminal: Terminal::None,
+                is_terminal: None,
             },
             Node {
                 id: "22C".to_string(),
-                is_terminal: Terminal::None,
+                is_terminal: None,
             },
             Node {
                 id: "22Z".to_string(),
-                is_terminal: Terminal::End,
+                is_terminal: Some(Terminal::End),
             },
             Node {
                 id: "XXX".to_string(),
-                is_terminal: Terminal::None,
+                is_terminal: None,
             },
         ];
 
