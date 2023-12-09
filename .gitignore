@@ -1,3 +1,4 @@
 target/
 .vscode/
 puzzle_input.txt
+*.code-workspace
