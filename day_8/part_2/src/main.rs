@@ -1,31 +1,53 @@
 use std::collections::HashMap;
 
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+
 fn main() {
     let input = std::fs::read_to_string("./puzzle_input.txt").expect("Could not read file");
-    let (directions, map) = parse(&input);
-    let steps = get_steps_to_destination(&directions, &map);
+    let map = parse(&input);
+    let steps = search(&map);
     println!("Steps to destination: {}", steps);
 }
 
-fn get_steps_to_destination(
-    directions: &[Direction],
-    map: &HashMap<String, (String, String)>,
-) -> usize {
-    let mut steps = 0;
-    let mut current = map.keys().filter(|k| k.ends_with("A"));
-    while current != "ZZZ" {
-        let (left, right) = map.get(&current).expect("Current must be in map");
-        match directions[steps % directions.len()] {
-            Direction::Right => current = right.to_string(),
-            Direction::Left => current = left.to_string(),
-        }
-        steps += 1;
-    }
+fn search(map: &Map) -> usize {
+    let starting_nodes: Vec<&String> = map.get_starting_nodes();
 
-    steps
+    let cul_steps: Vec<usize> = starting_nodes
+        .par_iter()
+        .map(|&node| {
+            let mut current = node;
+            let mut steps = 0;
+            while map.nodes[current].is_terminal != Terminal::End {
+                let direction = match map.directions[steps % map.directions.len()] {
+                    Direction::Right => Direction::Right,
+                    Direction::Left => Direction::Left,
+                };
+                current = map.get_edge(current, &direction);
+                steps += 1;
+            }
+            steps
+        })
+        .collect();
+
+    cul_steps
+        .iter()
+        .cloned()
+        .reduce(|acc, s| lcm(acc, s))
+        .expect("No steps found")
 }
 
-fn parse(input: &str) -> (Vec<Direction>, HashMap<String, (String, String)>) {
+fn lcm(a: usize, b: usize) -> usize {
+    a * b / gcd(a, b)
+}
+
+fn gcd(a: usize, b: usize) -> usize {
+    if b == 0 {
+        return a;
+    }
+    gcd(b, a % b)
+}
+
+fn parse(input: &str) -> Map {
     let input = input.replace("\r\n", "\n");
 
     let (directions, map) = input
@@ -34,19 +56,27 @@ fn parse(input: &str) -> (Vec<Direction>, HashMap<String, (String, String)>) {
 
     let directions = directions.chars().map(Direction::from_char).collect();
 
-    let map = map
-        .lines()
-        .map(|l| {
-            let (key, value) = l.split_once(" = ").expect("Line must contain ' = '");
-            let (left, right) = value
-                .trim_matches(|c| c == '(' || c == ')')
-                .split_once(", ")
-                .expect("Value must contain ', '");
-            (key.to_string(), (left.to_string(), right.to_string()))
-        })
-        .collect();
+    let mut nodes = HashMap::new();
+    let mut edges = HashMap::new();
 
-    (directions, map)
+    map.lines().for_each(|l| {
+        let (key, value) = l.split_once(" = ").expect("Line must contain ' = '");
+        let (left, right) = value
+            .trim_matches(|c| c == '(' || c == ')')
+            .split_once(", ")
+            .expect("Value must contain ', '");
+
+        let node = Node::from_str(key);
+        nodes.insert(key.to_string(), node);
+        let edge = (left.to_string(), right.to_string());
+        edges.insert(key.to_string(), edge);
+    });
+
+    Map {
+        directions,
+        nodes,
+        edges,
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -65,54 +95,152 @@ impl Direction {
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct Node {
+    id: String,
+    is_terminal: Terminal,
+}
+
+impl Node {
+    fn from_str(input: &str) -> Self {
+        let id = input.to_string();
+        let is_terminal = match input.chars().last() {
+            Some('A') => Terminal::Start,
+            Some('Z') => Terminal::End,
+            _ => Terminal::None,
+        };
+        Self { id, is_terminal }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Terminal {
+    Start,
+    End,
+    None,
+}
+
+struct Map {
+    directions: Vec<Direction>,
+    nodes: HashMap<String, Node>,
+    edges: HashMap<String, (String, String)>,
+}
+
+impl Map {
+    fn get_starting_nodes(&self) -> Vec<&String> {
+        self.nodes
+            .iter()
+            .filter_map(|(k, v)| {
+                if v.is_terminal == Terminal::Start {
+                    Some(k)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    fn get_edge(&self, id: &str, direction: &Direction) -> &String {
+        let (left, right) = &self.edges[id];
+        match direction {
+            Direction::Right => &right,
+            Direction::Left => &left,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const TEST_INPUT: &str = "RL\n\nAAA = (BBB, CCC)\nBBB = (DDD, EEE)\nCCC = (ZZZ, GGG)\nDDD = (DDD, DDD)\nEEE = (EEE, EEE)\nGGG = (GGG, GGG)\nZZZ = (ZZZ, ZZZ)";
+    const TEST_INPUT: &str = "LR\n\n11A = (11B, XXX)\n11B = (XXX, 11Z)\n11Z = (11B, XXX)\n22A = (22B, XXX)\n22B = (22C, 22C)\n22C = (22Z, 22Z)\n22Z = (22B, 22B)\nXXX = (XXX, XXX)";
 
     #[test]
-    fn test_parse_map() {
-        let expected_directions = vec![Direction::Right, Direction::Left];
-        let (actual_directions, actual_map) = parse(TEST_INPUT);
+    fn test_parse_map_directions() {
+        let expected_directions = vec![Direction::Left, Direction::Right];
+
+        let map = parse(TEST_INPUT);
+        let actual_directions = map.directions;
 
         assert_eq!(expected_directions, actual_directions);
-        assert_eq!(
-            actual_map.get("AAA"),
-            Some(&("BBB".to_string(), "CCC".to_string()))
-        );
-        assert_eq!(
-            actual_map.get("BBB"),
-            Some(&("DDD".to_string(), "EEE".to_string()))
-        );
-        assert_eq!(
-            actual_map.get("CCC"),
-            Some(&("ZZZ".to_string(), "GGG".to_string()))
-        );
-        assert_eq!(
-            actual_map.get("DDD"),
-            Some(&("DDD".to_string(), "DDD".to_string()))
-        );
-        assert_eq!(
-            actual_map.get("EEE"),
-            Some(&("EEE".to_string(), "EEE".to_string()))
-        );
-        assert_eq!(
-            actual_map.get("GGG"),
-            Some(&("GGG".to_string(), "GGG".to_string()))
-        );
-        assert_eq!(
-            actual_map.get("ZZZ"),
-            Some(&("ZZZ".to_string(), "ZZZ".to_string()))
-        );
+    }
+
+    #[test]
+    fn test_parse_map_nodes() {
+        let expected_nodes = vec![
+            Node {
+                id: "11A".to_string(),
+                is_terminal: Terminal::Start,
+            },
+            Node {
+                id: "11B".to_string(),
+                is_terminal: Terminal::None,
+            },
+            Node {
+                id: "11Z".to_string(),
+                is_terminal: Terminal::End,
+            },
+            Node {
+                id: "22A".to_string(),
+                is_terminal: Terminal::Start,
+            },
+            Node {
+                id: "22B".to_string(),
+                is_terminal: Terminal::None,
+            },
+            Node {
+                id: "22C".to_string(),
+                is_terminal: Terminal::None,
+            },
+            Node {
+                id: "22Z".to_string(),
+                is_terminal: Terminal::End,
+            },
+            Node {
+                id: "XXX".to_string(),
+                is_terminal: Terminal::None,
+            },
+        ];
+
+        let map = parse(TEST_INPUT);
+        let actual_nodes = map.nodes;
+
+        assert_eq!(expected_nodes[0], actual_nodes["11A"]);
+        assert_eq!(expected_nodes[1], actual_nodes["11B"]);
+        assert_eq!(expected_nodes[2], actual_nodes["11Z"]);
+        assert_eq!(expected_nodes[3], actual_nodes["22A"]);
+        assert_eq!(expected_nodes[4], actual_nodes["22B"]);
+        assert_eq!(expected_nodes[5], actual_nodes["22C"]);
+        assert_eq!(expected_nodes[6], actual_nodes["22Z"]);
+        assert_eq!(expected_nodes[7], actual_nodes["XXX"]);
+    }
+
+    #[test]
+    fn test_parse_map_edges() {
+        let expected_edges = vec![
+            ("11A".to_string(), ("11B".to_string(), "XXX".to_string())),
+            ("11B".to_string(), ("XXX".to_string(), "11Z".to_string())),
+            ("11Z".to_string(), ("11B".to_string(), "XXX".to_string())),
+            ("22A".to_string(), ("22B".to_string(), "XXX".to_string())),
+            ("22B".to_string(), ("22C".to_string(), "22C".to_string())),
+            ("22C".to_string(), ("22Z".to_string(), "22Z".to_string())),
+            ("22Z".to_string(), ("22B".to_string(), "22B".to_string())),
+            ("XXX".to_string(), ("XXX".to_string(), "XXX".to_string())),
+        ]
+        .into_iter()
+        .collect::<HashMap<String, (String, String)>>();
+
+        let map = parse(TEST_INPUT);
+        let actual_edges = map.edges;
+
+        assert_eq!(expected_edges, actual_edges);
     }
 
     #[test]
     fn test_get_steps_to_destination() {
-        let (directions, map) = parse(TEST_INPUT);
-        let expected = 2;
+        let map = parse(TEST_INPUT);
+        let expected = 6;
 
-        let actual = get_steps_to_destination(&directions, &map);
+        let actual = search(&map);
 
         assert_eq!(expected, actual);
     }
