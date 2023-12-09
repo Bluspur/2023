@@ -116,7 +116,6 @@ impl Node {
 enum Terminal {
     Start,
     End,
-    None,
 }
 
 struct Map {
