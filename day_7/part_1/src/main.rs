@@ -13,7 +13,7 @@ fn calculate_winnings(hands: &[Hand]) -> usize {
     hands
         .iter()
         .enumerate()
-        .map(|(i, hand)| (i as usize + 1) * hand.bid)
+        .map(|(i, hand)| (i + 1) * hand.bid)
         .sum()
 }
 
@@ -73,10 +73,10 @@ impl Hand {
             cards,
             bid,
             hex_value,
-            hand_type: hand_type,
+            hand_type,
         }
     }
-    fn get_hex_value(cards: &Vec<usize>) -> usize {
+    fn get_hex_value(cards: &[usize]) -> usize {
         cards.iter().fold(0, |acc, card| acc * 16 + card)
     }
 }
@@ -119,7 +119,7 @@ fn parse(input: &str) -> Vec<Hand> {
     input
         .lines()
         .map(|l| {
-            l.split_once(" ")
+            l.split_once(' ')
                 .map(|(cards, bid)| {
                     let cards = cards
                         .chars()
