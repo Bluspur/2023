@@ -232,13 +232,11 @@ mod test {
 
     #[test]
     fn test_hand_type_from_hand_with_jokers() {
-        let hands = vec![
-            [1, 2, 2, 2, 2], // Five of a kind
+        let hands = [[1, 2, 2, 2, 2], // Five of a kind
             [1, 2, 2, 2, 3], // Four of a kind
             [1, 2, 2, 3, 3], // Full house
             [4, 2, 1, 3, 3], // Three of a kind
-            [1, 2, 3, 4, 5], // One pair
-        ];
+            [1, 2, 3, 4, 5]];
 
         assert_eq!(HandType::FiveOfAKind, HandType::from_hand(&hands[0]));
         assert_eq!(HandType::FourOfAKind, HandType::from_hand(&hands[1]));
