@@ -25,7 +25,6 @@ fn pretty_print_map(
 ) {
     let max_x = map.tiles.keys().map(|Coordinates(x, _)| x).max().unwrap();
     let max_y = map.tiles.keys().map(|Coordinates(_, y)| y).max().unwrap();
-    dbg!(map.start);
     for y in 0..=*max_y {
         for x in 0..=*max_x {
             let tile = Coordinates(x, y);
