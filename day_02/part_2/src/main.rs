@@ -128,7 +128,7 @@ mod test {
         Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green";
 
         let expected = 2286;
-        let actual = sum_of_game_powers(&test_data);
+        let actual = sum_of_game_powers(test_data);
 
         assert_eq!(expected, actual);
     }

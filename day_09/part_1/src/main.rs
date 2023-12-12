@@ -42,7 +42,7 @@ fn finite_differences(mut seq: Vec<i32>) -> Option<Vec<i32>> {
 
     //Unwind
     seq.push(seq.last()? + extrapolated_seq.last()?);
-    return Some(seq);
+    Some(seq)
 }
 
 #[cfg(test)]

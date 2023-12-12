@@ -18,7 +18,7 @@ fn sum_of_possible_games(input: &str) -> u32 {
     input
         .lines()
         .map(parse_game)
-        .filter(|game| game_is_possible(game))
+        .filter(game_is_possible)
         .fold(0, |mut acc, game| {
             acc += game.id;
             acc
@@ -154,7 +154,7 @@ mod test {
         Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green";
 
         let expected = 8;
-        let actual = sum_of_possible_games(&test_data);
+        let actual = sum_of_possible_games(test_data);
 
         assert_eq!(expected, actual);
     }

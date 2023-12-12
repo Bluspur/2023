@@ -16,11 +16,11 @@ fn extrapolate_sequences(sequences: Vec<Vec<i32>>) -> i32 {
     sequences
         .par_iter()
         .map(|seq| {
-            rev_finite_differences(VecDeque::from(seq.to_vec()))
+            *rev_finite_differences(VecDeque::from(seq.to_vec()))
                 .expect("Failed to extrapolate sequence")
                 .front()
                 .expect("Sequence should have more than 0 elements")
-                .clone()
+            // .clone()
         })
         .sum()
 }
@@ -125,8 +125,8 @@ mod tests {
 
     #[test]
     fn test_finite_differences_front_values() {
-        let expected = vec![-3, 0, 5];
-        let mut test_data = vec![
+        let expected = [-3, 0, 5];
+        let test_data = vec![
             VecDeque::from(vec![0, 3, 6, 9, 12, 15]),
             VecDeque::from(vec![1, 3, 6, 10, 15, 21]),
             VecDeque::from(vec![10, 13, 16, 21, 30, 45]),
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_extrapolate_sequences() {
-        let mut test_data = vec![
+        let test_data = vec![
             vec![0, 3, 6, 9, 12, 15],
             vec![1, 3, 6, 10, 15, 21],
             vec![10, 13, 16, 21, 30, 45],
