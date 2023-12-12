@@ -4,15 +4,50 @@ use std::ops::{Add, Sub};
 
 use anyhow::{Context, Result};
 use bitflags::bitflags;
+use colored::*;
 
 fn main() {
     let file =
         std::fs::read_to_string("puzzle_input.txt").expect("Failed to read puzzle_input.txt");
     let map = Map::try_from(file.as_str()).expect("Failed to convert puzzle input to map");
     let loop_tiles = depth_first_search(&map).expect("Failed to depth first search");
-    match map.count_enclosed_tiles(loop_tiles) {
-        Ok(enclosed_tiles) => println!("Enclosed tiles: {}", enclosed_tiles),
-        Err(error) => panic!("Failed to count enclosed tiles: {}", error),
+    let enclosed_tiles = map
+        .get_enclosed_tiles(&loop_tiles)
+        .expect("Failed to get enclosed tiles");
+    pretty_print_map(map, loop_tiles.clone(), enclosed_tiles.clone());
+    //println!("Number of enclosed tiles: {}", enclosed_tiles.len());
+}
+
+fn pretty_print_map(
+    map: Map,
+    loop_coordinate: HashSet<Coordinates>,
+    enclosed_coordinates: HashSet<Coordinates>,
+) {
+    let max_x = map.tiles.keys().map(|Coordinates(x, _)| x).max().unwrap();
+    let max_y = map.tiles.keys().map(|Coordinates(_, y)| y).max().unwrap();
+    dbg!(map.start);
+    for y in 0..=*max_y {
+        for x in 0..=*max_x {
+            let tile = Coordinates(x, y);
+            let is_start = map.start == tile;
+            let tile_state = map.tiles.get(&tile).unwrap();
+            let is_loop_tile = loop_coordinate.contains(&tile);
+            let is_enclosed_tile = enclosed_coordinates.contains(&tile);
+
+            let symbol = tile_state.get_pretty_symbol();
+            let colorized = if is_start {
+                symbol.bright_green().blink()
+            } else if is_loop_tile {
+                symbol.bright_red()
+            } else if is_enclosed_tile {
+                symbol.bright_blue()
+            } else {
+                symbol.dimmed()
+            };
+
+            print!("{}", colorized);
+        }
+        println!();
     }
 }
 
@@ -75,6 +110,20 @@ impl TileState {
             (self_vertical_direction, other_vertical_direction),
             (TileState::UP, TileState::DOWN) | (TileState::DOWN, TileState::UP)
         )
+    }
+
+    fn get_pretty_symbol(&self) -> &'static str {
+        let cleaned = *self & !Self::START;
+        match cleaned {
+            Self::NONE => "░",
+            Self::UP_DOWN => "║",
+            Self::LEFT_RIGHT => "═",
+            Self::UP_LEFT => "╝",
+            Self::UP_RIGHT => "╚",
+            Self::DOWN_LEFT => "╗",
+            Self::DOWN_RIGHT => "╔",
+            _ => " ",
+        }
     }
 }
 
@@ -203,10 +252,13 @@ impl Map {
             }))
     }
 
-    fn count_enclosed_tiles(&self, loop_tiles: HashSet<Coordinates>) -> Result<usize> {
+    fn get_enclosed_tiles(
+        &self,
+        loop_tiles: &HashSet<Coordinates>,
+    ) -> Result<HashSet<Coordinates>> {
         let max_x = self.tiles.keys().map(|Coordinates(x, _)| x).max().unwrap();
         let max_y = self.tiles.keys().map(|Coordinates(_, y)| y).max().unwrap();
-        let mut enclosed_tiles = 0;
+        let mut enclosed_tiles = HashSet::new();
 
         for y in 0..=*max_y {
             let mut edges_crossed = 0;
@@ -229,7 +281,6 @@ impl Map {
                     // Loop Tile, First Corner
                     (true, true, None, _) => {
                         last_corner = Some(*current_tile_state);
-                        print!("X");
                     }
                     // Loop Tile, Second Corner
                     (true, true, Some(last_corner_state), _) => {
@@ -237,29 +288,21 @@ impl Map {
                             edges_crossed += 1;
                         }
                         last_corner = None;
-                        print!("X");
                     }
                     // Loop Tile, Parallel to scan line
-                    (true, false, Some(_), _) => {
-                        print!("-");
-                    }
+                    (true, false, Some(_), _) => {}
                     // Loop Tile, Not parallel to scan line
                     (true, false, None, _) => {
                         edges_crossed += 1;
-                        print!("|");
                     }
                     // Non-Loop Tile inside loop
                     (false, _, _, true) => {
-                        enclosed_tiles += 1;
-                        print!("O");
+                        enclosed_tiles.insert(Coordinates(x, y));
                     }
                     // Non-Loop Tile outside loop
-                    (false, _, _, false) => {
-                        print!(".");
-                    }
+                    (false, _, _, false) => {}
                 }
             }
-            println!();
         }
 
         Ok(enclosed_tiles)
@@ -423,9 +466,9 @@ mod test {
         .unwrap();
 
         let loop_tiles = depth_first_search(&map).unwrap();
-        let enclosed_tiles = map.count_enclosed_tiles(loop_tiles).unwrap();
+        let enclosed_tiles = map.get_enclosed_tiles(&loop_tiles).unwrap();
 
-        assert_eq!(4, enclosed_tiles);
+        assert_eq!(4, enclosed_tiles.len());
     }
 
     #[test]
@@ -458,5 +501,18 @@ mod test {
         assert!(TileState::UP_RIGHT.are_opposite_vertical_directions(&TileState::DOWN_LEFT));
         assert!(!TileState::DOWN_LEFT.are_opposite_vertical_directions(&TileState::DOWN_RIGHT));
         assert!(!TileState::UP_LEFT.are_opposite_vertical_directions(&TileState::UP_RIGHT));
+    }
+
+    #[test]
+    fn get_pretty_symbol() {
+        let start = TileState::START | TileState::UP | TileState::DOWN;
+        assert_eq!(TileState::NONE.get_pretty_symbol(), "░");
+        assert_eq!(TileState::UP_DOWN.get_pretty_symbol(), "║");
+        assert_eq!(TileState::LEFT_RIGHT.get_pretty_symbol(), "═");
+        assert_eq!(TileState::UP_LEFT.get_pretty_symbol(), "╝");
+        assert_eq!(TileState::UP_RIGHT.get_pretty_symbol(), "╚");
+        assert_eq!(TileState::DOWN_LEFT.get_pretty_symbol(), "╗");
+        assert_eq!(TileState::DOWN_RIGHT.get_pretty_symbol(), "╔");
+        assert_eq!(start.get_pretty_symbol(), "║");
     }
 }
