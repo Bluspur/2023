@@ -62,7 +62,7 @@ impl FromStr for Pattern {
 
 impl Pattern {
     fn new(cells: Vec<Vec<CellType>>) -> Self {
-        let dimensions = (cells[0].len() as usize, cells.len() as usize);
+        let dimensions = (cells[0].len(), cells.len());
         let mut pattern = Self {
             cells,
             dimensions,
@@ -101,29 +101,19 @@ impl Pattern {
 
         for index in 1..max_dim {
             if index < self.dimensions.0
-                && self.encoded_rows.iter().all(|&row| {
-                    println!(
-                        "Row: {:b}, Index: {}, Is_Axis: {}",
-                        row,
-                        index,
-                        is_reflection_axis(row, index, self.dimensions.0)
-                    );
-                    is_reflection_axis(row, index, self.dimensions.0)
-                })
+                && self
+                    .encoded_rows
+                    .iter()
+                    .all(|&row| is_reflection_axis(row, index, self.dimensions.0))
             {
                 return Some(ReflectionAxis::Vertical(index));
             }
 
             if index < self.dimensions.1
-                && self.encoded_cols.iter().all(|&col| {
-                    println!(
-                        "Col: {:b}, Index: {}, Is_Axis: {}",
-                        col,
-                        index,
-                        is_reflection_axis(col, index, self.dimensions.1)
-                    );
-                    is_reflection_axis(col, index, self.dimensions.1)
-                })
+                && self
+                    .encoded_cols
+                    .iter()
+                    .all(|&col| is_reflection_axis(col, index, self.dimensions.1))
             {
                 return Some(ReflectionAxis::Horizontal(index));
             }
@@ -190,41 +180,40 @@ fn get_pattern_summary(total_columns_to_left: usize, total_rows_above: usize) ->
 // Axis index is from the least significant bit to the most significant bit (L<-R)
 // Can return false positives, but I cannot think of a way to avoid it at the moment
 fn is_reflection_axis(encoded_line: usize, axis_index: usize, line_size: usize) -> bool {
-    let (left, right) = mirror_binary_at_position(encoded_line, axis_index);
-    let mut largest = left.max(right);
-    let smallest = left.min(right);
+    let (left, right) = split_and_mirror_binary_pattern_at_least_significant_bit_index(
+        encoded_line,
+        line_size,
+        axis_index,
+    );
 
-    if smallest == right {
-        // The right side is the smallest, so we need the least significant bits of the largest
-        let mask = (1 << axis_index) - 1;
-        largest = largest & mask;
-    } else {
-        // The left side is the smallest, so we need the most significant bits of the largest
-        let mask = !((1 << (line_size - axis_index)) - 1);
-        largest = largest & mask;
-    }
-
-    largest == smallest
+    left == right
 }
 
-fn mirror_binary_at_position(value: usize, position: usize) -> (usize, usize) {
-    // Create a mask to keep the bits up to the specified position
-    let mask = (1 << position) - 1;
-    let right_side = value & mask; // bitwise AND to get the right part
+fn split_and_mirror_binary_pattern_at_least_significant_bit_index(
+    pattern: usize,
+    pattern_length: usize,
+    bit_index: usize,
+) -> (usize, usize) {
+    let len_right = bit_index;
+    let len_left = pattern_length - bit_index;
+    // Shift the pattern right to get the left side of split
+    let mut left_side = pattern >> bit_index;
+    // Create a mask so we only get the bits of the right that we want
+    let mask = (1 << bit_index) - 1;
+    let mut right_side = pattern & mask;
 
-    // Shift the bits to the right to keep only the bits starting from the specified position
-    let left_side = value >> position; // right shift to get the left part
+    // We always need to flip the left hand side
+    left_side = left_side.reverse_bits();
 
-    // Calculate the actual bit width of the right side
-    let right_width = position;
+    // Then we need to determine how far to shift the left hand side, depending on which is longer
+    left_side >>= 64 - len_right.min(len_left);
 
-    // Reverse the bits in the right side
-    let reversed_right = if right_width == 0 {
-        0
-    } else {
-        right_side.reverse_bits() >> (64 - right_width)
-    };
-    (left_side, reversed_right)
+    // If the left is smaller, then we need to realign the right hand side
+    if len_left < len_right {
+        right_side >>= len_right - len_left;
+    }
+
+    (left_side, right_side)
 }
 
 fn build_binary_number(bits: Vec<bool>) -> usize {
@@ -286,28 +275,6 @@ mod test {
         let row = 0b101100110;
 
         assert!(!is_reflection_axis(row, axis, 9));
-    }
-
-    #[test]
-    fn test_split_binary_at_position_returns_correct_values() {
-        let value = 0b101100110;
-        let position = 4;
-
-        let expected = (0b10110, 0b0110);
-        let actual = mirror_binary_at_position(value, position);
-
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn test_split_binary_at_position_returns_correct_values_unequal_patterns() {
-        let value = 0b110111011;
-        let position = 4;
-
-        let expected = (0b11011, 0b1101);
-        let actual = mirror_binary_at_position(value, position);
-
-        assert_eq!(expected, actual);
     }
 
     #[test]
@@ -451,7 +418,7 @@ mod test {
             ],
         ];
         let pattern = Pattern::new(cells);
-        let actual = dbg!(pattern.get_reflection_axis());
+        let actual = pattern.get_reflection_axis();
 
         assert!(actual.is_some());
         assert_eq!(ReflectionAxis::Vertical(4), actual.unwrap());
@@ -591,16 +558,6 @@ mod test {
         let expected = Some(ReflectionAxis::Horizontal(12));
         let expected_summary = Summary::Above(1);
 
-        for row in &pattern.encoded_rows {
-            println!("{:b}", row);
-        }
-
-        println!();
-
-        for col in &pattern.encoded_cols {
-            println!("{:b}", col);
-        }
-
         assert_eq!(expected, actual);
         assert_eq!(
             expected_summary,
@@ -633,5 +590,27 @@ mod test {
             expected_summary,
             pattern.get_columns_left_or_above(actual.unwrap())
         );
+    }
+
+    #[test]
+    fn test_split_pattern_at_bit_index() {
+        let bits = 0b111000100;
+        let expected = [
+            (0, 0),           // 1
+            (0b10, 0),        // 2
+            (0, 0b100),       // 3
+            (0b0011, 0b0100), // 4
+            (0b0111, 0b10),   // 5
+            (0b111, 0),       // 6
+            (0b11, 0b10),     // 7
+            (0b1, 0b1),       // 8
+        ];
+
+        for i in 1..9 {
+            assert_eq!(
+                expected[i - 1],
+                split_and_mirror_binary_pattern_at_least_significant_bit_index(bits, 9, i)
+            )
+        }
     }
 }
