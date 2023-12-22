@@ -9,12 +9,11 @@ fn main() {
 
 fn solve_part(input: &str) -> usize {
     let parsed_input = parse(input).expect("Failed to parse input");
-    let total_load = parsed_input
+    parsed_input
         .into_par_iter()
-        .map(|col| slide_rocks(col))
+        .map(slide_rocks)
         .map(|col| calculate_load(&col))
-        .sum();
-    total_load
+        .sum()
 }
 
 fn parse(input: &str) -> Result<Vec<Vec<PositionState>>> {
