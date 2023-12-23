@@ -83,33 +83,21 @@ impl Grid {
     ) -> Option<((usize, usize), Origin)> {
         match origin {
             Origin::North => {
-                if previous.1 + 1 <= self.extents.1 {
+                if previous.1 < self.extents.1 {
                     Some(((previous.0, previous.1 + 1), origin))
                 } else {
                     None
                 }
             }
             Origin::West => {
-                if previous.0 + 1 <= self.extents.0 {
+                if previous.0 < self.extents.0 {
                     Some(((previous.0 + 1, previous.1), origin))
                 } else {
                     None
                 }
             }
-            Origin::South => {
-                if let Some(y) = previous.1.checked_sub(1) {
-                    Some(((previous.0, y), origin))
-                } else {
-                    None
-                }
-            }
-            Origin::East => {
-                if let Some(x) = previous.0.checked_sub(1) {
-                    Some(((x, previous.1), origin))
-                } else {
-                    None
-                }
-            }
+            Origin::South => previous.1.checked_sub(1).map(|y| ((previous.0, y), origin)),
+            Origin::East => previous.0.checked_sub(1).map(|x| ((x, previous.1), origin)),
         }
     }
     fn next_steps(
