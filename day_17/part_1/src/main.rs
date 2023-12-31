@@ -1,20 +1,26 @@
 use std::{
-    cmp::Ordering,
-    collections::{BinaryHeap, HashSet},
+    cmp::Reverse,
+    collections::{HashMap, HashSet},
+    ops::Index,
     str::FromStr,
 };
 
 use anyhow::Result;
+use priority_queue::PriorityQueue;
 
 fn main() {
-    let input = std::fs::read_to_string("./puzzle_input.txt").expect("Unable to read file");
-    let result = solve_part(&input);
-    println!("Result: {}", result);
-}
-
-fn solve_part(input: &str) -> usize {
+    let input = std::fs::read_to_string("./puzzle_input.txt").expect("Failed to read input file");
     let grid = input.parse::<Grid>().expect("Input should be valid grid");
-    grid.find_lowest_heatloss(Coordinate { x: 0, y: 0 }, Coordinate { x: 2, y: 2 }, 3)
+    let end = (grid.width - 1, grid.height - 1).into();
+    let search = SearchParameters {
+        start: (0, 0).into(),
+        end,
+        max_movement: 3,
+    };
+    let result = grid
+        .find_lowest_heatloss(search)
+        .expect("There should be a correct path");
+    println!("The lowest heatloss is: {}", result);
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -23,161 +29,172 @@ struct Coordinate {
     y: usize,
 }
 
+impl From<(usize, usize)> for Coordinate {
+    fn from(value: (usize, usize)) -> Self {
+        Self {
+            x: value.0,
+            y: value.1,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-enum Axis {
-    Start,
+enum Direction {
     Horizontal,
     Vertical,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 struct Move {
-    to: Coordinate,
-    cost: usize,
-    axis: Axis,
-    // Heuristic
-    estimated_cost: usize,
+    position: Coordinate,
+    direction: Option<Direction>,
 }
 
 impl Move {
-    fn new(to: Coordinate, cost: usize, axis: Axis, end: Coordinate) -> Self {
-        let estimated_cost = cost
-            + (end.x as isize - to.x as isize).unsigned_abs()
-            + (end.y as isize - to.y as isize).unsigned_abs();
+    fn new(position: Coordinate, direction: Option<Direction>) -> Self {
         Self {
-            to,
-            cost,
-            axis,
-            estimated_cost,
+            position,
+            direction,
         }
-    }
-    fn successors(
-        &self,
-        grid: &Grid,
-        visited: &HashSet<Move>,
-        max_movement: usize,
-        end: Coordinate,
-    ) -> Vec<Move> {
-        let mut successors = Vec::new();
-        // Get moves in the horizontal axis
-        if self.axis == Axis::Vertical || self.axis == Axis::Start {
-            let mut culm_pos_cost = 0;
-            let mut culm_neg_cost = 0;
-            for i in 1..=max_movement {
-                // Right
-                if self.to.x + i < grid.width {
-                    let pos = Coordinate {
-                        x: self.to.x + i,
-                        y: self.to.y,
-                    };
-                    let cost = grid.value_at_coordinates(pos);
-                    culm_pos_cost += cost;
-                    let m = Move::new(pos, self.cost + culm_pos_cost, Axis::Horizontal, end);
-                    if !visited.contains(&m) {
-                        successors.push(m);
-                    }
-                }
-                // Left
-                if let Some(x) = self.to.x.checked_sub(i) {
-                    let pos = Coordinate { x, y: self.to.y };
-                    let cost = grid.value_at_coordinates(pos);
-                    culm_neg_cost += cost;
-                    let m = Move::new(pos, self.cost + culm_neg_cost, Axis::Horizontal, end);
-                    if !visited.contains(&m) {
-                        successors.push(m);
-                    }
-                }
-            }
-        }
-        // Get moves in the vertical axis
-        if self.axis == Axis::Horizontal || self.axis == Axis::Start {
-            let mut culm_pos_cost = 0;
-            let mut culm_neg_cost = 0;
-            for i in 1..=max_movement {
-                // Down
-                if self.to.y + i < grid.height {
-                    let pos = Coordinate {
-                        x: self.to.x,
-                        y: self.to.y + i,
-                    };
-                    let cost = grid.value_at_coordinates(pos);
-                    culm_pos_cost += cost;
-                    let m = Move::new(pos, self.cost + culm_pos_cost, Axis::Vertical, end);
-                    if !visited.contains(&m) {
-                        successors.push(m);
-                    }
-                }
-                // Up
-                if let Some(y) = self.to.y.checked_sub(i) {
-                    let pos = Coordinate { x: self.to.x, y };
-                    let cost = grid.value_at_coordinates(pos);
-                    culm_neg_cost += cost;
-                    let m = Move::new(pos, self.cost + culm_neg_cost, Axis::Vertical, end);
-                    if !visited.contains(&m) {
-                        successors.push(m);
-                    }
-                }
-            }
-        }
-        successors
     }
 }
 
-impl Ord for Move {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse to make BinaryHeap a min-heap
-        other.estimated_cost.cmp(&self.estimated_cost)
-    }
-}
-
-impl PartialOrd for Move {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
+struct SearchParameters {
+    start: Coordinate,
+    end: Coordinate,
+    max_movement: usize,
 }
 
 struct Grid {
     width: usize,
     height: usize,
-    cells: Vec<usize>,
+    cells: HashMap<Coordinate, usize>,
 }
 
 impl Grid {
-    fn value_at_coordinates(&self, coord: Coordinate) -> usize {
-        self.cells[self.coordinate_to_index(coord)]
-    }
-
-    fn coordinate_to_index(&self, coord: Coordinate) -> usize {
-        coord.x + coord.y * self.width
-    }
-
-    // A* algorithm
-    fn find_lowest_heatloss(
-        &self,
-        start: Coordinate,
-        end: Coordinate,
-        max_movement: usize,
-    ) -> usize {
-        let mut visited = HashSet::new();
-        let mut frontier = BinaryHeap::new();
-        // We set up the first move manually
-        let origin = Move::new(start, self.value_at_coordinates(start), Axis::Start, end);
-        frontier.push(origin);
-        // Iterate through moves until the frontier is empty
-        while let Some(m) = frontier.pop() {
-            // First check if we are at the destination
-            if m.to == end {
-                return m.cost;
+    // Dijkstras algorithm
+    fn find_lowest_heatloss(&self, search: SearchParameters) -> Option<usize> {
+        // HashSet of Moves
+        let mut explored = HashSet::new();
+        // PriorityQueue of Moves that need to be explored
+        let mut frontier: PriorityQueue<Move, Reverse<usize>> = PriorityQueue::new();
+        // Set up the first move and add it to the frontier
+        let first_move = Move::new(search.start, None);
+        frontier.push(first_move, Reverse(0));
+        // Loop while there are possible moves in the frontier
+        while let Some((m, Reverse(c))) = frontier.pop() {
+            // Check to see if we have reached the goal
+            if m.position == search.end {
+                return Some(c);
             }
-            // Add this move to the visited set
-            visited.insert(m);
-            // Get the successor moves from the current move
-            // Duplicate moves are handled during move generation
-            for s_m in m.successors(self, &visited, max_movement, end) {
-                frontier.push(s_m);
+            // Otherwise we need to add this move to the explored set
+            explored.insert(m);
+            // Then get all the possible successor moves
+            // Automatically excludes already explored moves
+            let successors = self.successors(m, c, search.max_movement, &explored);
+            // Loop over every successor move
+            for (suc_mov, suc_cost) in successors {
+                // We try and increase the priority of whatever is already in the frontier
+                // If the priority isn't an increase, then we discard the result
+                frontier.push_increase(suc_mov, Reverse(suc_cost));
             }
         }
-        unreachable!()
+
+        // If there was no early exit then we can assume that no route was discovered
+        // This shouldn't ever happen with our test data
+        None
+    }
+
+    fn successors(
+        &self,
+        previous_move: Move,
+        previous_move_cost: usize,
+        max_movement: usize,
+        explored: &HashSet<Move>,
+    ) -> Vec<(Move, usize)> {
+        let mut successors = Vec::new();
+        // For tracking the increasing costs in each direction E W S N
+        let mut culm_costs = (
+            previous_move_cost,
+            previous_move_cost,
+            previous_move_cost,
+            previous_move_cost,
+        );
+
+        // We need to run the loop from 1 to the max movement depth
+        for d in 1..=max_movement {
+            // Handle Horizontal movements
+            if previous_move.direction != Some(Direction::Horizontal) {
+                // Positive Direction (East)
+                if let Some(pos) =
+                    self.bounded_add_coordinates(previous_move.position, Coordinate { x: d, y: 0 })
+                {
+                    // We need to update the culm score in this direction
+                    culm_costs.0 += self[pos];
+                    // Create a new move
+                    let new_move = Move::new(pos, Some(Direction::Horizontal));
+                    // Check if we have already explored from this direction
+                    if !explored.contains(&new_move) {
+                        successors.push((new_move, culm_costs.0))
+                    }
+                }
+                // Negative Direction (West)
+                if let Some(pos) =
+                    self.bounded_sub_coordinates(previous_move.position, Coordinate { x: d, y: 0 })
+                {
+                    // We need to update the culm score in this direction
+                    culm_costs.1 += self[pos];
+                    // Create a new move
+                    let new_move = Move::new(pos, Some(Direction::Horizontal));
+                    // Check if we have already explored from this direction
+                    if !explored.contains(&new_move) {
+                        successors.push((new_move, culm_costs.1))
+                    }
+                }
+            }
+            if previous_move.direction != Some(Direction::Vertical) {
+                // Positive Direction (South)
+                if let Some(pos) =
+                    self.bounded_add_coordinates(previous_move.position, Coordinate { x: 0, y: d })
+                {
+                    culm_costs.2 += self[pos];
+                    let new_move = Move::new(pos, Some(Direction::Vertical));
+                    if !explored.contains(&new_move) {
+                        successors.push((new_move, culm_costs.2))
+                    }
+                }
+                // Negative Direction (North)
+                if let Some(pos) =
+                    self.bounded_sub_coordinates(previous_move.position, Coordinate { x: 0, y: d })
+                {
+                    culm_costs.3 += self[pos];
+                    let new_move = Move::new(pos, Some(Direction::Vertical));
+                    if !explored.contains(&new_move) {
+                        successors.push((new_move, culm_costs.3))
+                    }
+                }
+            }
+        }
+
+        successors
+    }
+
+    fn bounded_add_coordinates(&self, a: Coordinate, b: Coordinate) -> Option<Coordinate> {
+        if a.x + b.x < self.width && a.y + b.y < self.height {
+            Some((a.x + b.x, a.y + b.y).into())
+        } else {
+            None
+        }
+    }
+
+    fn bounded_sub_coordinates(&self, a: Coordinate, b: Coordinate) -> Option<Coordinate> {
+        let x = a.x.checked_sub(b.x);
+        let y = a.y.checked_sub(b.y);
+        if let (Some(x), Some(y)) = (x, y) {
+            Some((x, y).into())
+        } else {
+            None
+        }
     }
 }
 
@@ -187,29 +204,34 @@ impl FromStr for Grid {
     fn from_str(s: &str) -> Result<Grid> {
         let mut width = 0;
         let mut height = 0;
-        let mut cells = Vec::new();
+        let mut cells = HashMap::new();
 
-        for line in s.lines() {
-            if width == 0 {
-                width = line.len();
-            } else if width != line.len() {
-                anyhow::bail!("Invalid grid width");
-            }
-            for c in line.chars() {
+        for (y, line) in s.lines().enumerate() {
+            for (x, c) in line.char_indices() {
+                // Should be highest on the last character
+                width = x;
                 let cell = c
                     .to_digit(10)
                     .ok_or_else(|| anyhow::anyhow!("Invalid digit in input"))?;
-                cells.push(cell as usize);
+                cells.insert(Coordinate { x, y }, cell as usize);
             }
-
-            height += 1;
+            // Should be highest on the last line
+            height = y;
         }
 
         Ok(Grid {
-            width,
-            height,
+            width: width + 1,
+            height: height + 1,
             cells,
         })
+    }
+}
+
+impl Index<Coordinate> for Grid {
+    type Output = usize;
+
+    fn index(&self, index: Coordinate) -> &Self::Output {
+        &self.cells[&index]
     }
 }
 
@@ -217,27 +239,6 @@ impl FromStr for Grid {
 mod tests {
     use super::*;
     use indoc::indoc;
-
-    #[test]
-    fn test_solve_part() {
-        let input = indoc! {"
-        2413432311323
-        3215453535623
-        3255245654254
-        3446585845452
-        4546657867536
-        1438598798454
-        4457876987766
-        3637877979653
-        4654967986887
-        4564679986453
-        1224686865563
-        2546548887735
-        4322674655533
-        "};
-
-        assert_eq!(solve_part(input), 102);
-    }
 
     #[test]
     fn test_parse_grid() {
@@ -262,19 +263,19 @@ mod tests {
         assert_eq!(grid.height, 13);
         assert_eq!(grid.cells.len(), 13 * 13);
         // First row
-        assert_eq!(grid.cells[0], 2);
-        assert_eq!(grid.cells[1], 4);
-        assert_eq!(grid.cells[2], 1);
-        assert_eq!(grid.cells[3], 3);
-        assert_eq!(grid.cells[4], 4);
-        assert_eq!(grid.cells[5], 3);
-        assert_eq!(grid.cells[6], 2);
-        assert_eq!(grid.cells[7], 3);
-        assert_eq!(grid.cells[8], 1);
-        assert_eq!(grid.cells[9], 1);
-        assert_eq!(grid.cells[10], 3);
-        assert_eq!(grid.cells[11], 2);
-        assert_eq!(grid.cells[12], 3);
+        assert_eq!(grid[(0, 0).into()], 2);
+        assert_eq!(grid[(1, 0).into()], 4);
+        assert_eq!(grid[(2, 0).into()], 1);
+        assert_eq!(grid[(3, 0).into()], 3);
+        assert_eq!(grid[(4, 0).into()], 4);
+        assert_eq!(grid[(5, 0).into()], 3);
+        assert_eq!(grid[(6, 0).into()], 2);
+        assert_eq!(grid[(7, 0).into()], 3);
+        assert_eq!(grid[(8, 0).into()], 1);
+        assert_eq!(grid[(9, 0).into()], 1);
+        assert_eq!(grid[(10, 0).into()], 3);
+        assert_eq!(grid[(11, 0).into()], 2);
+        assert_eq!(grid[(12, 0).into()], 3);
     }
 
     #[test]
@@ -296,49 +297,19 @@ mod tests {
         "};
 
         let grid = input.parse::<Grid>().expect("Input should be valid grid");
-        let end = Coordinate { x: 12, y: 12 };
-        let first_move = Move::new(Coordinate { x: 0, y: 0 }, 2, Axis::Start, end);
-        let visited = HashSet::new();
-        let successors = first_move.successors(&grid, &visited, 3, end);
+        let start = (0, 0).into();
+        let move_1 = Move::new(start, None);
+        let explored = HashSet::new();
+        let successors: Vec<(Move, usize)> = grid.successors(move_1, 2, 3, &explored);
         let expected = vec![
-            Move {
-                to: Coordinate { x: 1, y: 0 },
-                cost: 6,
-                axis: Axis::Horizontal,
-                estimated_cost: 29,
-            },
-            Move {
-                to: Coordinate { x: 2, y: 0 },
-                cost: 7,
-                axis: Axis::Horizontal,
-                estimated_cost: 29,
-            },
-            Move {
-                to: Coordinate { x: 3, y: 0 },
-                cost: 10,
-                axis: Axis::Horizontal,
-                estimated_cost: 31,
-            },
-            Move {
-                to: Coordinate { x: 0, y: 1 },
-                cost: 5,
-                axis: Axis::Vertical,
-                estimated_cost: 28,
-            },
-            Move {
-                to: Coordinate { x: 0, y: 2 },
-                cost: 8,
-                axis: Axis::Vertical,
-                estimated_cost: 30,
-            },
-            Move {
-                to: Coordinate { x: 0, y: 3 },
-                cost: 11,
-                axis: Axis::Vertical,
-                estimated_cost: 32,
-            },
+            (Move::new((1, 0).into(), Some(Direction::Horizontal)), 6),
+            (Move::new((0, 1).into(), Some(Direction::Vertical)), 5),
+            (Move::new((2, 0).into(), Some(Direction::Horizontal)), 7),
+            (Move::new((0, 2).into(), Some(Direction::Vertical)), 8),
+            (Move::new((3, 0).into(), Some(Direction::Horizontal)), 10),
+            (Move::new((0, 3).into(), Some(Direction::Vertical)), 11),
         ];
-
+        assert_eq!(successors.len(), 6);
         assert_eq!(successors, expected);
     }
 
@@ -361,22 +332,14 @@ mod tests {
         "};
 
         let grid = input.parse::<Grid>().expect("Input should be valid grid");
-        let cost =
-            grid.find_lowest_heatloss(Coordinate { x: 0, y: 0 }, Coordinate { x: 12, y: 12 }, 3);
-        assert_eq!(cost, 102);
-    }
-
-    #[test]
-    fn test_find_lowest_heatloss_small() {
-        let input = indoc! {"
-        241
-        321
-        325
-        "};
-
-        let grid = input.parse::<Grid>().expect("Input should be valid grid");
-        let cost =
-            grid.find_lowest_heatloss(Coordinate { x: 0, y: 0 }, Coordinate { x: 2, y: 2 }, 3);
-        assert_eq!(cost, 13);
+        let search = SearchParameters {
+            start: (0, 0).into(),
+            end: (12, 12).into(),
+            max_movement: 3,
+        };
+        let result = grid
+            .find_lowest_heatloss(search)
+            .expect("There should be a correct path");
+        assert_eq!(result, 102);
     }
 }
